@@ -1,0 +1,7 @@
+[build-system]
+requires = ["nanobind", "cmake", "setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trainweights"
+version = "0.1.0"
