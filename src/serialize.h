@@ -9,6 +9,17 @@
 #include <fstream>
 #include "tensor.h"
 
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+constexpr bool LITTLE = true;
+#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+constexpr bool LITTLE = false;
+#else
+// fallback to runtime check
+#endif
+
+static_assert(LITTLE == true, "trainweights assumes little-endian");
+
 /*
  * Serialization strategy:
  *
@@ -22,7 +33,8 @@
  *  2. dtype (allows mixed types)
  *  3. ndim
  *  3. dimensions
- *  4. offset
+ *  4. quant block metadata
+ *  5. offset
  *
  * After the last tensor data, we note the position, go to each offset, and fill the values
 */
@@ -47,12 +59,12 @@ void write_vec(std::ofstream& f, const std::vector<T>& vec) {
     std::uint64_t bytes_per_elem = sizeof(T);
     write_exact(f, &bytes_per_elem, sizeof(std::uint64_t));
 
-    for (const auto& e : vec) {
+    for (const auto& e: vec) {
         write_exact(f, &e, bytes_per_elem);
     }
 }
 
-template <typename T>
+template<typename T>
 std::vector<T> read_vec(std::istream& f) {
     // Writes num elements, bytes per element, then elements
     std::uint64_t len;
@@ -83,7 +95,10 @@ struct Header {
     const char* magic;
     std::uint64_t version;
     std::uint64_t tensor_count;
-    explicit Header(std::uint64_t version, std::size_t num_tensors) : magic(TrainWeightsMagic), version(version), tensor_count(num_tensors) {}
+
+    explicit Header(std::uint64_t version, std::size_t num_tensors) : magic(TrainWeightsMagic), version(version),
+                                                                      tensor_count(num_tensors) {
+    }
 
     void write(std::ofstream& f) const;
 

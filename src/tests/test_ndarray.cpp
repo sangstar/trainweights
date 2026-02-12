@@ -27,7 +27,7 @@ int test_quantize_tensor() {
         throw std::runtime_error("tensor not quantized");
     }
     auto as_view = qt.value().to_TensorDataView();
-    auto buf = (std::int8_t *)as_view.arr.value().data();
+    auto buf = (std::int8_t *) as_view.arr.value().data();
     printf("%s\n", as_view.as_str().c_str());
 }
 
@@ -63,10 +63,10 @@ int test_quantize_tensor_big() {
     size_t shape[ndim] = {4, 8};
 
     float data[] = {
-        -10,  -5,  -2,  -1,   0,   1,   2,   5,
-         10,  20,  30,  40,  50,  60,  80, 100,
-        -100, -80, -60, -40, -20, -10,  -5,  -1,
-          3,   7,  15,  25,  55,  75,  90, 120
+        -10, -5, -2, -1, 0, 1, 2, 5,
+        10, 20, 30, 40, 50, 60, 80, 100,
+        -100, -80, -60, -40, -20, -10, -5, -1,
+        3, 7, 15, 25, 55, 75, 90, 120
     };
 
     auto array = nb::ndarray(data, ndim, shape);
@@ -75,7 +75,7 @@ int test_quantize_tensor_big() {
     auto qt = quantize_i8<2>(tens);
     if (qt.has_value()) {
         void* raw = qt->data.get();
-        auto buf = reinterpret_cast<QuantBuf<Datatype::int8>::type*>(raw);
+        auto buf = reinterpret_cast<QuantBuf<Datatype::int8>::type *>(raw);
         printf("Quantized values:\n");
         for (size_t i = 0; i < 32; ++i) {
             printf("%4d ", buf[i]);
@@ -86,22 +86,16 @@ int test_quantize_tensor_big() {
 }
 
 int test_write_and_read_tensors() {
-
-    auto stream = std::ofstream("tensor_test.tws");
-    Header header = Header(1, 3);
-
-    header.write(stream);
-
     std::vector<TensorDataView> tensors;
 
     constexpr int ndim = 2;
     size_t shape[ndim] = {4, 8};
 
     float data[] = {
-        -10,  -5,  -2,  -1,   0,   1,   2,   5,
-         10,  20,  30,  40,  50,  60,  80, 100,
-        -100, -80, -60, -40, -20, -10,  -5,  -1,
-          3,   7,  15,  25,  55,  75,  90, 120
+        -10, -5, -2, -1, 0, 1, 2, 5,
+        10, 20, 30, 40, 50, 60, 80, 100,
+        -100, -80, -60, -40, -20, -10, -5, -1,
+        3, 7, 15, 25, 55, 75, 90, 120
     };
 
     auto array = nb::ndarray(data, ndim, shape);
@@ -117,15 +111,38 @@ int test_write_and_read_tensors() {
     tens_b.name = std::string("tensor_b");
 
     tensors.emplace_back(tens_b);
-    write_tensors(stream, tensors);
+    auto len = tensors.size();
+    std::vector<std::string> names = {"tensor_a", "tensor_b"};
+    std::vector<TensorDataView> quantized_tensors;
+    for (int i = 0; i < len; ++i) {
+        auto name = names[i];
+        const auto& tensor = tensors[i];
+        std::optional<QuantizedTensor> quantized;
+        switch (tensor.dims.size()) {
+            case 1: quantized = quantize_i8<1>(tensor);
+                break;
+            case 2: quantized = quantize_i8<2>(tensor);
+                break;
+        }
+        if (quantized.has_value()) {
+            auto qt = quantized.value().to_TensorDataView();
+            quantized_tensors.emplace_back(std::move(qt));
+        } else {
+            throw std::runtime_error("could not quantize tensor");
+        }
+    }
+    serialize("tensor_test.tws", quantized_tensors);
 
-    stream.close();
 
     auto read_stream = std::ifstream("tensor_test.tws");
-    auto read_header = Header::from_stream(read_stream);
-    auto read_tens = read_tensors(read_stream, 2);
-    for (const auto& v: read_tens) {
-        printf("%s\n", v.as_str().c_str());
+    auto header = Header::from_stream(read_stream);
+    auto read_tens = read_tensors(read_stream, header.tensor_count);
+    for (auto& t: read_tens) {
+        t.dequantize<float>();
+    }
+
+    for (auto& t: read_tens) {
+        printf("%s\n", t.as_str().c_str());
     }
 }
 
@@ -134,7 +151,7 @@ void test_print_1D_tensor() {
     size_t shape[ndim] = {6};
 
     float data[] = {
-        -10,  -5,  -2,  -1,   0,   1,
+        -10, -5, -2, -1, 0, 1,
     };
 
     auto array = nb::ndarray(data, ndim, shape);

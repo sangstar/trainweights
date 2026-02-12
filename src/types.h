@@ -46,7 +46,7 @@ const char* to_string(Datatype e);
     X(Datatype::float32, float) \
     X(Datatype::float64, double)
 
-template <Datatype D>
+template<Datatype D>
 struct dtype_cpp;
 
 #define X(name, cpp_type) \
@@ -61,19 +61,18 @@ using View = decltype(
 
 static_assert(std::is_same_v<
     dtype_cpp<Datatype::float32>::type,
-    float
->);
+    float>);
 
-template <typename Closure>
+template<typename Closure>
 void dispatch_dtype(Datatype dtype, Closure&& f) {
     switch (dtype) {
 #define CASES(name, cpp_type) \
 case name: f(std::integral_constant<Datatype, name>{}); break;
 
-    DTYPE_MAP(CASES)
+        DTYPE_MAP(CASES)
         default: throw std::runtime_error("unsupported dtype");
 #undef CASES
-        }
+    }
 }
 
 template<Datatype D, std::uint64_t Dim>
@@ -85,7 +84,6 @@ struct TensorView {
         return arr.view<type, nb::ndim<Dim>>()(std::forward<Args>(args)...);
     }
 };
-
 
 
 #endif //TRAINWEIGHTS_TYPES_H

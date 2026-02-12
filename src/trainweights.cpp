@@ -2,6 +2,7 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/pair.h>
 #include <string_view>
 #include <utility>
 
@@ -19,7 +20,7 @@ void parse_blob(std::string name, nb::ndarray<> a) {
     return;
 }
 
-void quantize_and_save(std::string filename, std::vector<std::string> names, std::vector<nb::ndarray<>> tensors) {
+void quantize_and_save(std::string filename, std::vector<std::string> names, std::vector<nb::ndarray<> > tensors) {
     if (names.size() != tensors.size()) {
         throw std::runtime_error("names and tensor lists must match in size");
     }
@@ -32,8 +33,10 @@ void quantize_and_save(std::string filename, std::vector<std::string> names, std
         auto as_view = TensorDataView(name, tensor);
         std::optional<QuantizedTensor> quantized;
         switch (as_view.dims.size()) {
-            case 1: quantized = quantize_i8<1>(as_view); break;
-            case 2: quantized = quantize_i8<2>(as_view); break;
+            case 1: quantized = quantize_i8<1>(as_view);
+                break;
+            case 2: quantized = quantize_i8<2>(as_view);
+                break;
         }
         if (quantized.has_value()) {
             auto qt = quantized.value().to_TensorDataView();
@@ -46,9 +49,33 @@ void quantize_and_save(std::string filename, std::vector<std::string> names, std
     serialize(std::move(filename), tensor_views);
 }
 
+nb::tuple load(std::string filename) {
+    auto read_stream = std::ifstream(filename);
+    auto header = Header::from_stream(read_stream);
+    auto read_tens = read_tensors(read_stream, header.tensor_count);
 
+    Logger::log("Read tensors. Dequantizing...");
+    for (auto& t: read_tens) {
+        t.dequantize<float>();
+    }
+
+    nb::list names;
+    nb::list tensors;
+
+    for (const auto& t: read_tens) {
+        names.append(t.name);
+
+        if (!t.arr.has_value())
+            throw std::runtime_error("tensor missing data");
+
+        tensors.append(t.arr.value());
+    }
+
+    return nb::make_tuple(names, tensors);
+}
 
 NB_MODULE(trainweights, m) {
     m.def("parse_blob", &parse_blob);
     m.def("quantize_and_save", &quantize_and_save);
+    m.def("load", &load);
 }

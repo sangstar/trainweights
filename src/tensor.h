@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 #include "types.h"
+#include "logger.h"
 
 namespace nb = nanobind;
 
@@ -39,7 +40,7 @@ struct QuantBuf<Datatype::int8> {
     type* data;
 
     explicit QuantBuf(size_t elems) {
-        data = static_cast<type*>(malloc(elems * sizeof(type)));
+        data = static_cast<type *>(malloc(elems * sizeof(type)));
     }
 
     ~QuantBuf() {
@@ -48,14 +49,16 @@ struct QuantBuf<Datatype::int8> {
 };
 
 
-
-
 struct QuantBlockMetadata {
     size_t block_size;
     size_t start_idx;
     size_t end_idx;
     Datatype type;
     float scale;
+
+    void write(std::ofstream& f) const;
+
+    static QuantBlockMetadata from_stream(std::istream& f);
 };
 
 
@@ -67,12 +70,14 @@ struct TensorDataView {
     Device device = Device::Unknown;
     Datatype dtype = Datatype::count;
 
-    std::optional<std::vector<QuantBlockMetadata>> blocks{};
-    std::optional<nb::ndarray<>> arr;
+    std::optional<std::vector<QuantBlockMetadata> > blocks{};
+    std::optional<nb::ndarray<> > arr;
 
     // Optional metadata when serializing/deserializing
     std::optional<uint64_t> offset{};
+    std::optional<float> quant_scale{};
     std::optional<uint64_t> nbytes{};
+
     [[nodiscard]] std::uint64_t get_nbytes() const;
 
     TensorDataView() = default;
@@ -86,9 +91,50 @@ struct TensorDataView {
     std::uint64_t write_metadata(std::ofstream& f) const;
 
     void write_tensor_data(std::ofstream& f, std::uint64_t offset) const;
+
+    // TODO: Fix to make sure the int8 and float types are templated
+    template<typename T>
+    void dequantize() {
+        if (!blocks.has_value()) {
+            return;
+        }
+
+        Logger::log("Found block. Quantizing...");
+
+        size_t n = arr.value().size();
+
+        auto q = nb::ndarray<nb::numpy, std::int8_t, nb::c_contig>(*arr);
+
+        size_t ndim = q.ndim();
+
+        // Build shape vector
+        std::vector<size_t> shape(q.ndim());
+        for (size_t i = 0; i < q.ndim(); ++i)
+            shape[i] = q.shape(i);
+
+        float* float_buf = static_cast<float *>(malloc(n * sizeof(float)));
+        // Allocate float output
+        nb::ndarray<nb::numpy, float, nb::c_contig> out(
+            float_buf,
+            ndim,
+            shape.data(),
+            nb::capsule(float_buf, [](void* p) noexcept { free(p); })
+        );
+
+        const std::int8_t* original = q.data();
+        float* data = out.data();
+
+        for (const auto& block: *blocks)
+            for (size_t i = block.start_idx; i < block.end_idx; ++i)
+                data[i] = static_cast<float>(original[i]) * block.scale;
+
+        *arr = nb::ndarray<>(out);
+
+        dtype = Datatype::float32;
+    }
 };
 
-template <Datatype D, std::uint64_t Dim, typename... Args>
+template<Datatype D, std::uint64_t Dim, typename... Args>
 auto get_tensor_value(const TensorDataView* tens, Args&&... args) {
     using T = typename dtype_cpp<D>::type;
 
@@ -99,7 +145,7 @@ auto get_tensor_value(const TensorDataView* tens, Args&&... args) {
 }
 
 
-template <typename T, Datatype D>
+template<typename T, Datatype D>
 void add_tensor_str_values(const TensorDataView* tens, std::string& s) {
     s.append("[");
 
@@ -146,7 +192,8 @@ void write_tensors(std::ofstream& f, std::vector<TensorDataView>& tensors);
 std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_count);
 
 template<Datatype Inp, Datatype Out, std::uint64_t Dim>
-void handle(void* buf, std::vector<QuantBlockMetadata>& blocks, std::uint64_t row_idx, std::uint64_t col_idx, std::uint64_t block_size, std::uint64_t cols,
+void handle(void* buf, std::vector<QuantBlockMetadata>& blocks, std::uint64_t row_idx, std::uint64_t col_idx,
+            std::uint64_t block_size, std::uint64_t cols,
             TensorView<Inp, Dim>* view_fn, const nb::ndarray<>& arr) {
     float max = 0.0f;
     auto ptr = static_cast<typename QuantBuf<Out>::type *>(buf);
@@ -170,8 +217,9 @@ void handle(void* buf, std::vector<QuantBlockMetadata>& blocks, std::uint64_t ro
     }
     blocks.emplace_back(
         QuantBlockMetadata{
-            block_size, row_idx * cols, row_idx * cols + col_idx + block_size, Out, scale}
-        );
+            block_size, row_idx * cols, row_idx * cols + col_idx + block_size, Out, scale
+        }
+    );
     for (std::uint64_t i = col_idx; i < col_idx + block_size; ++i) {
         auto v = viewer(arr, row_idx, i);
         auto q = static_cast<int8_t>(
@@ -180,7 +228,6 @@ void handle(void* buf, std::vector<QuantBlockMetadata>& blocks, std::uint64_t ro
         ptr[row_idx * cols + i] = q;
     }
 }
-
 
 
 void quantize_block(void* buf, Datatype dtype, std::uint64_t row_idx, std::uint64_t col_idx, std::uint64_t cols,
@@ -195,7 +242,9 @@ struct QuantizedTensor {
     std::string name;
     bool is_1d;
     std::vector<QuantBlockMetadata> blocks;
+
     nb::ndarray<> to_ndarray();
+
     TensorDataView to_TensorDataView();
 };
 
@@ -206,7 +255,6 @@ void quantize_block(void* buf, std::vector<QuantBlockMetadata>& blocks, TensorVi
                     std::uint64_t block_size, const nb::ndarray<>& arr) {
     handle<Inp, Out, Dim>(buf, blocks, row_idx, col_idx, block_size, cols, &view_fn, arr);
 }
-
 
 
 template<Datatype Inp, Datatype Out, std::uint64_t Dim>
@@ -225,13 +273,13 @@ QuantizedTensor quantize_impl(std::uint64_t rows, std::uint64_t cols, const Tens
         }
     }
     return QuantizedTensor{
-            {quantbuf, free},
-            Out, rows * cols, rows, cols, "", false, blocks
-        };
+        {quantbuf, free},
+        Out, rows * cols, rows, cols, "", false, blocks
+    };
 }
 
 
-template <std::uint64_t Dim>
+template<std::uint64_t Dim>
 std::optional<QuantizedTensor> quantize_i8(const TensorDataView& tens) {
     std::uint64_t rows, cols;
     rows = static_cast<std::uint64_t>(tens.dims[0]);

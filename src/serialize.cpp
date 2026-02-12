@@ -5,12 +5,12 @@
 #include "serialize.h"
 
 void write_exact(std::ofstream& f, const void* data, const std::size_t n) {
-    f.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(n));
+    f.write(reinterpret_cast<const char *>(data), static_cast<std::streamsize>(n));
     if (!f) throw std::runtime_error("write failed");
 }
 
 void read_exact(std::istream& f, void* data, const std::size_t n) {
-    f.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(n));
+    f.read(reinterpret_cast<char *>(data), static_cast<std::streamsize>(n));
     if (!f) throw std::runtime_error("read failed");
 }
 

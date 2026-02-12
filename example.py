@@ -74,9 +74,34 @@ def restore_checkpoint(
     return ckpt.get("epoch", 0), ckpt.get("step", 0)
 
 
-# -----------------------------
-# Demo training
-# -----------------------------
+def save_model(model, filename):
+    tensors = []
+    names = []
+    for key, param in model.state_dict().items():
+        val = param.numpy()
+        if len(val.shape) == 1:
+            print(key, val[:5])
+        else:
+            print(key, val[0, :5])
+        tensors.append(val)
+        names.append(key)
+
+    trainweights.quantize_and_save(filename, names, tensors)
+
+def load_model(filename):
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME,
+        num_labels=2,
+    ).to("cpu")
+    keys, dltensors = trainweights.load("trainweights_tensors.tws")
+    state_dict = {}
+    for key, tensor in zip(keys, dltensors):
+        state_dict[key] = torch.from_dlpack(tensor)
+
+    model.load_state_dict(state_dict)
+    return model
+
+
 def main():
     device = "cpu"
 
@@ -96,8 +121,10 @@ def main():
             print(key, val[0, :5])
         tensors.append(val)
         names.append(key)
-    trainweights.quantize_and_save("trainweights_tensors.tws", names, tensors)
 
+    trainweights.quantize_and_save("trainweights_tensors.tws", names, tensors)
+    # TODO: Add in README this example and show savings on disk usage
+    model = load_model("trainweights_tensors.tws")
     optimizer = AdamW(model.parameters(), lr=5e-5)
     scheduler = LinearLR(optimizer, start_factor=1.0, end_factor=0.1, total_iters=20)
 

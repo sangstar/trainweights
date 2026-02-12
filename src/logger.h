@@ -6,8 +6,8 @@
 #define TRAINWEIGHTS_LOGGER_H
 
 #include <iostream>
-struct Logger {
 
+struct Logger {
     template<typename... Args>
     static void log(Args&&... args) {
         (std::cout << ... << args) << '\n';
