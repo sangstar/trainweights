@@ -56,7 +56,7 @@ nb::tuple load(std::string filename) {
 
     Logger::log("Read tensors. Dequantizing...");
     for (auto& t: read_tens) {
-        t.dequantize<float>();
+        t.dequantize(Datatype::float32);
     }
 
     nb::list names;

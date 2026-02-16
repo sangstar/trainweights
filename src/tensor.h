@@ -93,44 +93,47 @@ struct TensorDataView {
     void write_tensor_data(std::ofstream& f, std::uint64_t offset) const;
 
     // TODO: Fix to make sure the int8 and float types are templated
-    template<typename T>
-    void dequantize() {
+    void dequantize(Datatype dest) {
         if (!blocks.has_value()) {
             return;
         }
 
-        Logger::log("Found block. Quantizing...");
+        dispatch_dtype(dest, [&](auto tag) {
+            using T = typename dtype_cpp<tag.value>::type;
 
-        size_t n = arr.value().size();
+            Logger::log("Found block. Quantizing...");
 
-        auto q = nb::ndarray<nb::numpy, std::int8_t, nb::c_contig>(*arr);
+            size_t n = arr.value().size();
 
-        size_t ndim = q.ndim();
+            auto q = nb::ndarray<nb::numpy, std::int8_t, nb::c_contig>(*arr);
 
-        // Build shape vector
-        std::vector<size_t> shape(q.ndim());
-        for (size_t i = 0; i < q.ndim(); ++i)
-            shape[i] = q.shape(i);
+            size_t ndim = q.ndim();
 
-        float* float_buf = static_cast<float *>(malloc(n * sizeof(float)));
-        // Allocate float output
-        nb::ndarray<nb::numpy, float, nb::c_contig> out(
-            float_buf,
-            ndim,
-            shape.data(),
-            nb::capsule(float_buf, [](void* p) noexcept { free(p); })
-        );
+            // Build shape vector
+            std::vector<size_t> shape(q.ndim());
+            for (size_t i = 0; i < q.ndim(); ++i)
+                shape[i] = q.shape(i);
 
-        const std::int8_t* original = q.data();
-        float* data = out.data();
+            T* buf = static_cast<T *>(malloc(n * sizeof(T)));
+            // Allocate float output
+            nb::ndarray<nb::numpy, T, nb::c_contig> out(
+                buf,
+                ndim,
+                shape.data(),
+                nb::capsule(buf, [](void* p) noexcept { free(p); })
+            );
 
-        for (const auto& block: *blocks)
-            for (size_t i = block.start_idx; i < block.end_idx; ++i)
-                data[i] = static_cast<float>(original[i]) * block.scale;
+            const std::int8_t* original = q.data();
+            T* data = out.data();
 
-        *arr = nb::ndarray<>(out);
+            for (const auto& block: *blocks)
+                for (size_t i = block.start_idx; i < block.end_idx; ++i)
+                    data[i] = static_cast<T>(original[i]) * block.scale;
 
-        dtype = Datatype::float32;
+            *arr = nb::ndarray<>(out);
+
+            dtype = dest;
+        });
     }
 };
 
@@ -145,38 +148,41 @@ auto get_tensor_value(const TensorDataView* tens, Args&&... args) {
 }
 
 
-template<typename T, Datatype D>
+template<Datatype D>
 void add_tensor_str_values(const TensorDataView* tens, std::string& s) {
-    s.append("[");
 
-    const size_t max_elems = 16;
-    size_t count = 0;
+    dispatch_dtype(D, [&](auto tag) {
+        using T = typename dtype_cpp<tag.value>::type;
 
-    if (tens->dims.size() == 1) {
-        for (size_t i = 0; i < tens->dims[0] && count < max_elems; ++i) {
-            auto v = get_tensor_value<D, 1>(tens, i);
-            s.append(std::to_string(static_cast<int>(v)));
-            s.append(", ");
-            ++count;
-        }
-    } else if (tens->dims.size() == 2) {
-        for (size_t i = 0; i < tens->dims[0] && count < max_elems; ++i) {
-            for (size_t j = 0; j < tens->dims[1] && count < max_elems; ++j) {
-                auto v = get_tensor_value<D, 2>(tens, i, j);
+        s.append("[");
+        const size_t max_elems = 16;
+        size_t count = 0;
+        if (tens->dims.size() == 1) {
+            for (size_t i = 0; i < tens->dims[0] && count < max_elems; ++i) {
+                auto v = get_tensor_value<D, 1>(tens, i);
                 s.append(std::to_string(static_cast<int>(v)));
                 s.append(", ");
                 ++count;
             }
+        } else if (tens->dims.size() == 2) {
+            for (size_t i = 0; i < tens->dims[0] && count < max_elems; ++i) {
+                for (size_t j = 0; j < tens->dims[1] && count < max_elems; ++j) {
+                    auto v = get_tensor_value<D, 2>(tens, i, j);
+                    s.append(std::to_string(static_cast<T>(v)));
+                    s.append(", ");
+                    ++count;
+                }
+            }
         }
-    }
 
-    if (count > 0)
-        s.resize(s.size() - 2); // remove last ", "
+        if (count > 0)
+            s.resize(s.size() - 2); // remove last ", "
 
-    s.append("...]");
+        s.append("...]");
+    });
 }
 
-#define STR_ENTRY(name, type) add_tensor_str_values<type, name>,
+#define STR_ENTRY(name, type) add_tensor_str_values<name>,
 
 
 constexpr auto TensorStrFnDispatcher = std::array{
