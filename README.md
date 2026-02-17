@@ -4,6 +4,19 @@ Pet project meant to quantize, then serialize PyTorch models in a compact binary
 meant to be useful for saving model checkpoints in a more compressed format to save heavily on 
 disk space.
 
+
+
+#### Still to do:
+- Now that general quantization and save/load is working, expand Python package to
+  quantize checkpoints that differ little from some reference checkpoint so that this
+  actually can be useful during training (as small diffs arguably are too unimportant to warrant
+  their high precisions). Maybe implement this in library code with a context manager
+  or something around a training loop
+- Probably want to allow quantization to be filterable since usually want to preserve full precision
+  for things like optimizer states
+- General tidiness
+- `bf16` support
+
 ## Usage example:
 Using the example script in `examples/for_readme.py`:
 
@@ -70,12 +83,5 @@ Simply navigate to the root directory of the repo and run:
 ```
 pip install .
 ```
-
-
-#### Still to do:
-- General tidiness
-- `bf16` support
-- Smarter quantization (e.g. not simply downcasting to `int8` but
-  trying to preserve precision for certain things like biases )
 
 
