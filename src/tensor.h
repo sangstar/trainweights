@@ -101,7 +101,7 @@ struct TensorDataView {
         dispatch_dtype(dest, [&](auto tag) {
             using T = typename dtype_cpp<tag.value>::type;
 
-            Logger::log("Found block. Quantizing...");
+            // Logger::log("Found block. Quantizing...");
 
             size_t n = arr.value().size();
 

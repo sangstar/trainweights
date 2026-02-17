@@ -25,7 +25,7 @@ void quantize_and_save(std::string filename, std::vector<std::string> names, std
         throw std::runtime_error("names and tensor lists must match in size");
     }
     auto len = names.size();
-    Logger::log("Got ", len, " tensors.");
+    // Logger::log("Got ", len, " tensors.");
     std::vector<TensorDataView> tensor_views;
     for (int i = 0; i < len; ++i) {
         auto name = names[i];
@@ -40,7 +40,7 @@ void quantize_and_save(std::string filename, std::vector<std::string> names, std
         }
         if (quantized.has_value()) {
             auto qt = quantized.value().to_TensorDataView();
-            Logger::log("Added and quantized tensor: ", qt.as_str());
+            // Logger::log("Added and quantized tensor: ", qt.as_str());
             tensor_views.emplace_back(std::move(qt));
         } else {
             throw std::runtime_error("could not quantize tensor");
@@ -54,7 +54,7 @@ nb::tuple load(std::string filename) {
     auto header = Header::from_stream(read_stream);
     auto read_tens = read_tensors(read_stream, header.tensor_count);
 
-    Logger::log("Read tensors. Dequantizing...");
+    // Logger::log("Read tensors. Dequantizing...");
     for (auto& t: read_tens) {
         t.dequantize(Datatype::float32);
     }
@@ -74,7 +74,7 @@ nb::tuple load(std::string filename) {
     return nb::make_tuple(names, tensors);
 }
 
-NB_MODULE(trainweights, m) {
+NB_MODULE(_C, m) {
     m.def("parse_blob", &parse_blob);
     m.def("quantize_and_save", &quantize_and_save);
     m.def("load", &load);

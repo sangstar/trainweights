@@ -15,12 +15,17 @@ execute_process(
 find_package(nanobind CONFIG REQUIRED)
 
 nanobind_add_module(
-        trainweights
+        _C
         src/trainweights.cpp
         src/tensor.cpp
         src/serialize.cpp
         src/types.cpp
         src/logger.cpp
+)
+
+# Output directly to the trainweights package directory
+set_target_properties(_C PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/trainweights
 )
 
 add_executable(test_ndarray
