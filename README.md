@@ -65,16 +65,10 @@ Proportioned mean difference for key distilbert.transformer.layer.0.attention.q_
 ```
 
 ### Getting set up:
-Before I have wheels distributed, you can build from source. Make sure to install `nanobind`:
+Simply navigate to the root directory of the repo and run:
 
-```bash
-pip install nanobind
 ```
-
-And then build the CMake project:
-
-```bash
-cmake -B <build-dir>
+pip install .
 ```
 
 
