@@ -74,7 +74,6 @@ pip install .
 
 #### Still to do:
 - General tidiness
-- Expand Python-side package and have `pip install` invoke `cmake` for build
 - `bf16` support
 - Smarter quantization (e.g. not simply downcasting to `int8` but
   trying to preserve precision for certain things like biases )
