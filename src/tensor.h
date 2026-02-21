@@ -92,7 +92,6 @@ struct TensorDataView {
 
     void write_tensor_data(std::ofstream& f, std::uint64_t offset) const;
 
-    // TODO: Fix to make sure the int8 and float types are templated
     void dequantize(Datatype dest) {
         if (!blocks.has_value()) {
             return;

@@ -11,10 +11,6 @@
 #include "serialize.h"
 namespace nb = nanobind;
 
-// TODO: We're relying on Python to pass diff weights, we won't compute diff weights here.
-//       Just focusing on quantizing and serializing
-
-
 struct TrainWeightsLoader {
     std::ifstream stream;
     Header header;
