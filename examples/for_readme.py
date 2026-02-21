@@ -22,9 +22,10 @@ def main():
     model.save_pretrained(save_dir)
 
     safetensors_filepath = f"{save_dir}/model.safetensors"
-    trainweights_filepath = f"{save_dir}/trainweights_tensors.tws"
+    trainweights_filename = "trainweights_tensors.tws"
+    trainweights_filepath = f"{save_dir}/{trainweights_filename}"
 
-    trainweights.save_model(model, trainweights_filepath)
+    trainweights.save_model(model, trainweights_filepath, True)
 
     print(f"Safetensors filesize: "
           f"{os.stat(safetensors_filepath).st_size / 1e9:.2f} GB")

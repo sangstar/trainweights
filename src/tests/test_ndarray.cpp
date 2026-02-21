@@ -220,8 +220,111 @@ void test_print_1D_tensor() {
     printf("%s\n", tens.as_str().c_str());
 }
 
+void test_serialize_uint8_tensor() {
+    std::vector<TensorDataView> tensors;
+    constexpr int ndim = 1;
+    size_t shape[ndim] = {14};
+    std::uint8_t data[] = {64, 68, 6, 168, 145, 124, 16, 132, 1, 0, 0, 0, 1, 0};
+    auto array = nb::ndarray(data, ndim, shape);
+    auto tens_a = TensorDataView(array, Datatype::uint8);
+    tens_a.name = std::string("tensor_a");
+    tensors.emplace_back(tens_a);
+    serialize("tensor_test.tws", tensors);
+}
+
+void test_save_load_no_quant() {
+    std::vector<TensorDataView> tensors;
+
+    constexpr int ndim = 2;
+    size_t shape[ndim] = {4, 8};
+
+    double data[] = {
+        -10.35, -5.235, -2, -1, 0, 1, 2, 5,
+        10.532151, 20.523, 3.50, 40.123, 50.235, 60.5, 80, 100,
+        -100, -80.5312, -60, -40.2, -20, -10, -5, -1,
+        3, 7, 15, 25, 55, 75.52351, 90, 120.1235
+    };
+
+    auto array = nb::ndarray(data, ndim, shape);
+    auto tens_a = TensorDataView(array, Datatype::float64);
+    tens_a.name = std::string("tensor_a");
+    tensors.emplace_back(tens_a);
+    serialize("tensor_test.tws", tensors);
+
+    auto read_stream = std::ifstream("tensor_test.tws");
+    auto header = Header::from_stream(read_stream);
+    auto read_tens = read_tensors(read_stream, header.tensor_count);
+
+    for (const auto& t: read_tens) {
+        printf("%s\n", t.as_str().c_str());
+    }
+
+
+}
+
+void test_lazy_read_tensor() {
+    std::vector<TensorDataView> tensors;
+
+    constexpr int ndim = 2;
+    size_t shape[ndim] = {4, 8};
+
+    double data[] = {
+        -10.35, -5.235, -2, -1, 0, 1, 2, 5,
+        10.532151, 20.523, 3.50, 40.123, 50.235, 60.5, 80, 100,
+        -100, -80.5312, -60, -40.2, -20, -10, -5, -1,
+        3, 7, 15, 25, 55, 75.52351, 90, 120.1235
+    };
+
+    auto array = nb::ndarray(data, ndim, shape);
+    auto tens_a = TensorDataView(array, Datatype::float64);
+    tens_a.name = std::string("tensor_a");
+    tensors.emplace_back(tens_a);
+
+    constexpr int ndim_b = 2;
+    size_t shape_b[ndim_b] = {1, 6};
+    double data_b[] = {1, 2, 3, 4, 5, 6};
+    auto array_b = nb::ndarray(data_b, ndim_b, shape_b);
+    auto tens_b = TensorDataView(array_b, Datatype::float64);
+    tens_b.name = std::string("tensor_b");
+
+    tensors.emplace_back(tens_b);
+    auto len = tensors.size();
+    std::vector<std::string> names = {"tensor_a", "tensor_b"};
+    std::vector<TensorDataView> quantized_tensors;
+    for (int i = 0; i < len; ++i) {
+        auto name = names[i];
+        const auto& tensor = tensors[i];
+        std::optional<QuantizedTensor> quantized;
+        switch (tensor.dims.size()) {
+            case 1: quantized = quantize_i8<1>(tensor);
+                break;
+            case 2: quantized = quantize_i8<2>(tensor);
+                break;
+        }
+        if (quantized.has_value()) {
+            auto qt = quantized.value().to_TensorDataView();
+            quantized_tensors.emplace_back(std::move(qt));
+        } else {
+            throw std::runtime_error("could not quantize tensor");
+        }
+    }
+    serialize("tensor_test.tws", quantized_tensors);
+
+
+    auto read_stream = std::ifstream("tensor_test.tws");
+    auto header = Header::from_stream(read_stream);
+    auto read_tens = read_tensors(read_stream, header.tensor_count);
+    auto just_tensor_a = read_tensor(read_tens, "tensor_a");
+    just_tensor_a.dequantize(Datatype::float64);
+
+    printf("%s\n", just_tensor_a.as_str().c_str());
+
+}
+
 int main() {
     Py_Initialize();
+    test_serialize_uint8_tensor();
+    test_save_load_no_quant();
     test_dequantize_double();
     test_quantize_tensor();
     test_print_1D_tensor();

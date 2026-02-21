@@ -3,3 +3,5 @@
 //
 
 #include "logger.h"
+
+Logger logger(LoggingLevels::Debug);

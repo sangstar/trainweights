@@ -195,6 +195,8 @@ static_assert(
 
 void write_tensors(std::ofstream& f, std::vector<TensorDataView>& tensors);
 
+TensorDataView read_tensor(const std::vector<TensorDataView>& tensors, const char* name);
+
 std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_count);
 
 template<Datatype Inp, Datatype Out, std::uint64_t Dim>
@@ -288,6 +290,7 @@ QuantizedTensor quantize_impl(std::uint64_t rows, std::uint64_t cols, const Tens
 template<std::uint64_t Dim>
 std::optional<QuantizedTensor> quantize_i8(const TensorDataView& tens) {
     std::uint64_t rows, cols;
+    logger.debugf("Quantizing tensor %s", tens.as_str().c_str());
     rows = static_cast<std::uint64_t>(tens.dims[0]);
     auto is_1d = false;
     if (tens.dims.size() == 1) {

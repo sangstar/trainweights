@@ -1,77 +1,13 @@
 import os
-import time
 
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import trainweights
+from trainweights.io import build_checkpoint, restore_checkpoint
 
 MODEL_NAME = "distilbert-base-uncased"
-
-
-# -----------------------------
-# Checkpoint utilities
-# -----------------------------
-def build_checkpoint(
-        model,
-        optimizer=None,
-        scheduler=None,
-        scaler=None,
-        epoch=None,
-        step=None,
-        rng_state=True,
-):
-    ckpt = {
-        "model": model.state_dict(),
-    }
-
-    if optimizer:
-        ckpt["optimizer"] = optimizer.state_dict()
-    if scheduler:
-        ckpt["scheduler"] = scheduler.state_dict()
-    if scaler:
-        ckpt["scaler"] = scaler.state_dict()
-    if epoch is not None:
-        ckpt["epoch"] = epoch
-    if step is not None:
-        ckpt["step"] = step
-
-    if rng_state:
-        ckpt["rng"] = {
-            "torch": torch.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state_all()
-            if torch.cuda.is_available()
-            else None,
-        }
-
-    return ckpt
-
-
-def restore_checkpoint(
-        ckpt,
-        model,
-        optimizer=None,
-        scheduler=None,
-        scaler=None,
-):
-    model.load_state_dict(ckpt["model"])
-
-    if optimizer and "optimizer" in ckpt:
-        optimizer.load_state_dict(ckpt["optimizer"])
-
-    if scheduler and "scheduler" in ckpt:
-        scheduler.load_state_dict(ckpt["scheduler"])
-
-    if scaler and "scaler" in ckpt:
-        scaler.load_state_dict(ckpt["scaler"])
-
-    if "rng" in ckpt:
-        torch.set_rng_state(ckpt["rng"]["torch"])
-        if ckpt["rng"]["cuda"] and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(ckpt["rng"]["cuda"])
-
-    return ckpt.get("epoch", 0), ckpt.get("step", 0)
 
 
 def main():
@@ -83,14 +19,12 @@ def main():
         num_labels=2,
     ).to(device)
 
-    save_dir = os.getenv("PWD") or None
-    if save_dir is None:
+    pwd = os.getenv("PWD") or None
+    if pwd is None:
         raise RuntimeError("No save dir was set")
+    else:
+        save_dir = f"{pwd}/model"
 
-    model.save_pretrained(save_dir)
-
-    trainweights.save_model(model, f"{save_dir}/trainweights_tensors.tws")
-    model = trainweights.load_model(f"{save_dir}/trainweights_tensors.tws", MODEL_NAME)
     optimizer = AdamW(model.parameters(), lr=5e-5)
     scheduler = LinearLR(optimizer, start_factor=1.0, end_factor=0.1, total_iters=20)
 
@@ -106,35 +40,62 @@ def main():
 
     inputs = tokenizer(texts, padding=True, return_tensors="pt")
 
+    step = 0
+
     model.train()
 
-    for epoch in range(2):
-        for step in range(10):
-            optimizer.zero_grad()
+    def forward_two_epochs(initial_step):
+        for epoch in range(2):
+            for step in range(initial_step, initial_step + 10):
+                optimizer.zero_grad()
 
-            out = model(**inputs, labels=labels)
-            loss = out.loss
+                out = model(**inputs, labels=labels)
+                loss = out.loss
 
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+        return initial_step + 10
 
-    print("Saving checkpoint...")
+    step = forward_two_epochs(step)
 
     ckpt = build_checkpoint(
         model,
         optimizer,
         scheduler,
         scaler,
-        epoch=epoch,
+        epoch=2,
         step=step,
     )
 
-    torch.save(ckpt, "hf_checkpoint.pt")
+    ckpt_dir = f"{save_dir}_{step}"
+    os.mkdir(ckpt_dir)
 
-    # -------------------------
-    # Restore into fresh model
-    # -------------------------
+    # Retain precision on original checkpoint
+    trainweights.io.save_checkpoint(ckpt, ckpt_dir, quantize_i8=False)
+
+    # Simulate another few training steps
+    step = forward_two_epochs(step)
+
+    ckpt = build_checkpoint(
+        model,
+        optimizer,
+        scheduler,
+        scaler,
+        epoch=2,
+        step=step,
+    )
+
+    ckpt_dir = f"{save_dir}_{step}"
+    os.mkdir(ckpt_dir)
+
+    # Quantize this checkpoint at rest to save on disk usage
+    trainweights.io.save_checkpoint(ckpt, ckpt_dir, quantize_i8=False)
+
+
+    # Let's now load this checkpoint and compare them
+    ckpt_dict_loaded = trainweights.io.load_checkpoint(ckpt_dir)
+
     print("Reloading...")
 
     model2 = AutoModelForSequenceClassification.from_pretrained(
@@ -146,17 +107,14 @@ def main():
     scheduler2 = LinearLR(optimizer2, start_factor=1.0, end_factor=0.1, total_iters=20)
     scaler2 = torch.cuda.amp.GradScaler(enabled=False)
 
-    loaded = torch.load("hf_checkpoint.pt", map_location=device)
-
     restore_checkpoint(
-        loaded,
+        ckpt_dict_loaded,
         model2,
         optimizer2,
         scheduler2,
         scaler2,
     )
 
-    # sanity check
     with torch.no_grad():
         out1 = model(**inputs).logits
         out2 = model2(**inputs).logits

@@ -59,7 +59,7 @@ std::uint64_t TensorDataView::get_nbytes() const {
 
 
 TensorDataView::TensorDataView(const nb::ndarray<>& ar, std::optional<Datatype> type) : arr(ar) {
-    // Logger::log("Trying to parse array...");
+    logger.debugf("init TensorDataView, ar=%p, type=%s", &ar, to_string(type.value_or(Datatype::count)));
     std::vector<std::size_t> parse_dims;
     parse_dims.reserve(ar.ndim());
     for (int i = 0; i < ar.ndim(); ++i) {
@@ -74,7 +74,7 @@ TensorDataView::TensorDataView(const nb::ndarray<>& ar, std::optional<Datatype> 
         this->dtype = type.value();
     } else {
         auto arr_dtype = ar.dtype();
-        // Logger::log("got dtype code", arr_dtype.code, arr_dtype.bits, arr_dtype.lanes);
+        logger.debug("got dtype code", arr_dtype.code, arr_dtype.bits, arr_dtype.lanes);
         switch (arr_dtype.code) {
             case 0: {
                 switch (arr_dtype.bits) {
@@ -181,13 +181,16 @@ std::uint64_t TensorDataView::write_metadata(std::ofstream& f) const {
     write_exact(f, &num_bytes, sizeof(std::uint64_t));
 
     std::uint64_t num_blocks = 0;
+
     if (blocks.has_value()) {
         num_blocks = blocks.value().size();
-    }
-    write_exact(f, &num_blocks, sizeof(std::uint64_t));
-
-    for (const auto& block: blocks.value()) {
-        block.write(f);
+        write_exact(f, &num_blocks, sizeof(std::uint64_t));
+        logger.debugf("writing num_blocks=%d", num_blocks);
+        for (const auto& block: blocks.value()) {
+            block.write(f);
+        }
+    } else {
+        write_exact(f, &num_blocks, sizeof(std::uint64_t));
     }
 
     auto dummy_offset_pos = f.tellp();
@@ -198,6 +201,11 @@ std::uint64_t TensorDataView::write_metadata(std::ofstream& f) const {
 
 
 void TensorDataView::write_tensor_data(std::ofstream& f, std::uint64_t offset) const {
+    if (!arr.has_value()) {
+        logger.debugf("tensor %s has no array data...", name.c_str());
+        throw std::runtime_error("Tried to write tensor with no data");
+    }
+    logger.debugf("writing tensor data %s", name.c_str());
     auto blob = arr->data();
     auto correct_offset = f.tellp();
     std::size_t n_bytes = 0;
@@ -224,24 +232,42 @@ void write_tensors(std::ofstream& f, std::vector<TensorDataView>& tensors) {
     std::uint64_t len = tensors.size();
     offsets.reserve(len);
     for (const auto& t: tensors) {
+        logger.debugf("writing tensor metadata for %s", t.name.c_str());
         offsets.emplace_back(t.write_metadata(f));
     }
 
     for (int i = 0; i < len; ++i) {
+        logger.debugf("writing tensor data for %s", tensors[i].name.c_str());
+
         tensors[i].write_tensor_data(f, offsets[i]);
     }
+}
+
+TensorDataView read_tensor(const std::vector<TensorDataView>& tensors, const char* name) {
+    for (const auto& t: tensors) {
+        if (strcmp(t.name.c_str(), name) == 0) {
+            return t;
+        }
+    }
+    throw std::runtime_error("read_tensor could not find tensor");
 }
 
 std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_count) {
     std::vector<TensorDataView> tensors;
     for (auto i = 0; i < tensor_count; ++i) {
+        logger.debug("reading tensor...");
         auto name = read_str(f);
+        logger.debugf("got tensor name %s", name.c_str());
 
         Datatype dtype;
         read_exact(f, &dtype, sizeof(Datatype));
+        logger.debugf("got tensor dtype %s", to_string(dtype));
+
 
         std::uint64_t ndim;
         read_exact(f, &ndim, sizeof(std::uint64_t));
+
+        logger.debugf("got tensor ndim %llu", ndim);
 
 
         auto tens = TensorDataView();
@@ -251,9 +277,11 @@ std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_c
         std::uint64_t nbytes;
         std::uint64_t offset;
         read_exact(f, &nbytes, sizeof(std::uint64_t));
+        logger.debugf("got tensor nbytes %llu", nbytes);
 
         std::uint64_t num_blocks;
         read_exact(f, &num_blocks, sizeof(std::uint64_t));
+        logger.debugf("got tensor num_blocks %llu", num_blocks);
 
         std::vector<QuantBlockMetadata> block_vec;
         block_vec.reserve(num_blocks);
@@ -266,6 +294,7 @@ std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_c
 
 
         read_exact(f, &offset, sizeof(std::uint64_t));
+        logger.debugf("got tensor offset %llu", offset);
 
         tens.nbytes = nbytes;
         tens.offset = offset;
@@ -279,12 +308,16 @@ std::vector<TensorDataView> read_tensors(std::istream& f, std::uint64_t tensor_c
         void* data = malloc(tensors[i].nbytes.value());
         read_exact(f, data, tensors[i].nbytes.value());
 
-        tensors[i].arr = nb::ndarray<>(
-            nb::ndarray<nb::numpy, std::int8_t>(
+        dispatch_dtype(tensors[i].dtype, [&](auto tag) {
+            using T = typename dtype_cpp<tag.value>::type;
+            tensors[i].arr = nb::ndarray<>(
+            nb::ndarray<nb::numpy, T>(
                 data,
                 tensors[i].dims.size(),
                 tensors[i].dims.data(),
                 nb::capsule(data, [](void* p) noexcept { free(p); })));
+        });
+
     }
     return tensors;
 }
