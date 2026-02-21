@@ -17,15 +17,20 @@ disk space.
 - General tidiness
 - `bf16` support
 
+### Getting set up:
+Simply navigate to the root directory of the repo and run:
+
+```
+pip install .
+```
+
 ## Usage example:
 Using the example script in `examples/for_readme.py`, we can see the disk usage savings from 
 quantizing the model tensors at rest:
 
-```bash
-python3 examples/for_readme.py
-```
-
 ```text
+% python3 examples/for_readme.py
+
 Safetensors filesize: 0.27 GB
 Trainweights int8 quantized filesize: 0.10 GB
 Proportioned mean difference for key distilbert.embeddings.word_embeddings.weight: 0.088
@@ -175,13 +180,6 @@ With output:
 ```
 Reloading...
 Max diff after restore: 0.40635305643081665
-```
-
-### Getting set up:
-Simply navigate to the root directory of the repo and run:
-
-```
-pip install .
 ```
 
 
